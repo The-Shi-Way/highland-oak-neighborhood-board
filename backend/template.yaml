@@ -1,0 +1,953 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Highland Oak Neighborhood Board - Serverless Backend
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment stage (dev or prod)
+
+  AllowedOrigin:
+    Type: String
+    Default: http://localhost:3002
+    Description: Allowed CORS origin (e.g. https://yourdomain.com)
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures:
+      - arm64
+    Timeout: 29
+    MemorySize: 256
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        TABLE_NAME: !Ref CommunityTable
+        IMAGES_BUCKET: !Ref ImagesBucket
+        USER_POOL_ID: !Ref CommunityUserPool
+        USER_POOL_CLIENT_ID: !Ref CommunityUserPoolClient
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+    Layers:
+      - !Ref SharpLayer
+
+Resources:
+
+  # ─── Cognito ──────────────────────────────────────────────────────────────
+
+  CommunityUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "highland-oak-users-${Stage}"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      EmailVerificationMessage: "Your Highland Oak verification code is {####}"
+      EmailVerificationSubject: "Verify your Highland Oak account"
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: false
+        - Name: displayName
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+          StringAttributeConstraints:
+            MinLength: "2"
+            MaxLength: "50"
+        - Name: role
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "20"
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+      UserPoolTags:
+        Stage: !Ref Stage
+        Project: highland-oak
+
+  CommunityUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "highland-oak-client-${Stage}"
+      UserPoolId: !Ref CommunityUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      ReadAttributes:
+        - email
+        - custom:displayName
+        - custom:role
+      WriteAttributes:
+        - email
+        - custom:displayName
+
+  # ─── DynamoDB ─────────────────────────────────────────────────────────────
+
+  CommunityTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    Properties:
+      TableName: !Sub "CommunityBoard-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: TTL
+        Enabled: true
+      Tags:
+        - Key: Stage
+          Value: !Ref Stage
+        - Key: Project
+          Value: highland-oak
+
+  # ─── S3 Bucket ────────────────────────────────────────────────────────────
+
+  ImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "highland-oak-images-${Stage}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Suspended
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - !Ref AllowedOrigin
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOriginalUploads
+            Status: Enabled
+            Prefix: uploads/
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+          - Id: DeleteOldProcessed
+            Status: Enabled
+            Prefix: processed/
+            ExpirationInDays: 365
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+            Function: !GetAtt ImageProcessorFunction.Arn
+      Tags:
+        - Key: Stage
+          Value: !Ref Stage
+        - Key: Project
+          Value: highland-oak
+
+  ImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImagesBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOAI
+            Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${ImagesBucket}/*"
+
+  # ─── Lambda Layer (Sharp) ─────────────────────────────────────────────────
+
+  SharpLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "sharp-layer-${Stage}"
+      Description: Sharp image processing library for arm64
+      ContentUri: layers/sharp/
+      CompatibleRuntimes:
+        - nodejs20.x
+      CompatibleArchitectures:
+        - arm64
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: nodejs20.x
+
+  # ─── Lambda Permission for S3 ─────────────────────────────────────────────
+
+  S3InvokeImageProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ImageProcessorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:aws:s3:::highland-oak-images-${Stage}-${AWS::AccountId}"
+
+  # ─── HTTP API ─────────────────────────────────────────────────────────────
+
+  CommunityApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Requested-With
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowCredentials: true
+        MaxAge: 600
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CommunityUserPool}"
+              audience:
+                - !Ref CommunityUserPoolClient
+        DefaultAuthorizer: NONE
+      Tags:
+        Stage: !Ref Stage
+        Project: highland-oak
+
+  # ─── Auth Lambda Functions ────────────────────────────────────────────────
+
+  SignupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-signup-${Stage}"
+      CodeUri: ./
+      Handler: functions/auth/signup.handler
+      Description: Create a new user account
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminCreateUser
+                - cognito-idp:AdminSetUserPassword
+                - cognito-idp:AdminUpdateUserAttributes
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /auth/signup
+
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-login-${Stage}"
+      CodeUri: ./
+      Handler: functions/auth/login.handler
+      Description: Authenticate user and return tokens
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:InitiateAuth
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /auth/login
+
+  RefreshFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-refresh-${Stage}"
+      CodeUri: ./
+      Handler: functions/auth/refresh.handler
+      Description: Refresh authentication tokens
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:InitiateAuth
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /auth/refresh
+
+  ForgotPasswordFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-forgot-password-${Stage}"
+      CodeUri: ./
+      Handler: functions/auth/forgot-password.handler
+      Description: Initiate forgot password flow
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:ForgotPassword
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /auth/forgot-password
+
+  ResetPasswordFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-reset-password-${Stage}"
+      CodeUri: ./
+      Handler: functions/auth/reset-password.handler
+      Description: Complete password reset with confirmation code
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:ConfirmForgotPassword
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /auth/reset-password
+
+  LogoutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-logout-${Stage}"
+      CodeUri: ./
+      Handler: functions/auth/logout.handler
+      Description: Sign out user globally
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:GlobalSignOut
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /auth/logout
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ─── Posts Lambda Functions ───────────────────────────────────────────────
+
+  ListPostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-list-posts-${Stage}"
+      CodeUri: ./
+      Handler: functions/posts/list.handler
+      Description: List posts with optional category filter and pagination
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: GET
+            Path: /posts
+
+  GetPostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-get-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/posts/get.handler
+      Description: Get single post with comments
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: GET
+            Path: /posts/{id}
+
+  CreatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-create-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/posts/create.handler
+      Description: Create a new neighborhood post
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /posts
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-update-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/posts/update.handler
+      Description: Update an existing post (owner or admin)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: PUT
+            Path: /posts/{id}
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeletePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-delete-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/posts/delete.handler
+      Description: Soft-delete a post (owner or admin)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: DELETE
+            Path: /posts/{id}
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  LikePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-like-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/posts/like.handler
+      Description: Toggle like on a post
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /posts/{id}/like
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ─── Comments Lambda Functions ────────────────────────────────────────────
+
+  CreateCommentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-create-comment-${Stage}"
+      CodeUri: ./
+      Handler: functions/comments/create.handler
+      Description: Add a comment to a post
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /posts/{id}/comments
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteCommentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-delete-comment-${Stage}"
+      CodeUri: ./
+      Handler: functions/comments/delete.handler
+      Description: Soft-delete a comment (owner or admin)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: DELETE
+            Path: /posts/{id}/comments/{cid}
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ─── Images Lambda Functions ──────────────────────────────────────────────
+
+  PresignUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-presign-upload-${Stage}"
+      CodeUri: ./
+      Handler: functions/images/presign.handler
+      Description: Generate presigned S3 URL for image upload
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+        - S3WritePolicy:
+            BucketName: !Ref ImagesBucket
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /images/presign
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  ImageProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-image-processor-${Stage}"
+      CodeUri: ./
+      Handler: functions/images/process.handler
+      Description: Process uploaded images with sharp (resize, WebP, strip EXIF)
+      MemorySize: 1024
+      Timeout: 60
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref ImagesBucket
+
+  # ─── Moderation Lambda Functions ──────────────────────────────────────────
+
+  ReportPostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-report-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/moderation/report.handler
+      Description: Report a post for moderation
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: POST
+            Path: /posts/{id}/report
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  AdminListReportsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-admin-list-reports-${Stage}"
+      CodeUri: ./
+      Handler: functions/moderation/admin-list-reports.handler
+      Description: Admin endpoint to list reported posts
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: GET
+            Path: /admin/reports
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  AdminUpdatePostStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-admin-update-status-${Stage}"
+      CodeUri: ./
+      Handler: functions/moderation/admin-update-status.handler
+      Description: Admin endpoint to update post status (active/hidden)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: PUT
+            Path: /admin/posts/{id}/status
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  AdminDeletePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-admin-delete-post-${Stage}"
+      CodeUri: ./
+      Handler: functions/moderation/admin-delete-post.handler
+      Description: Admin endpoint to hard-delete a post and all related items
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: DELETE
+            Path: /admin/posts/{id}
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ─── Me Lambda Functions ──────────────────────────────────────────────────
+
+  GetMeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-get-me-${Stage}"
+      CodeUri: ./
+      Handler: functions/me/get.handler
+      Description: Get current user profile
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CommunityTable
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: GET
+            Path: /me
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdateMeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-update-me-${Stage}"
+      CodeUri: ./
+      Handler: functions/me/update.handler
+      Description: Update current user profile
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminUpdateUserAttributes
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: PUT
+            Path: /me
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteMeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "highland-oak-delete-me-${Stage}"
+      CodeUri: ./
+      Handler: functions/me/delete.handler
+      Description: Delete current user account and anonymize data
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommunityTable
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminDeleteUser
+              Resource: !GetAtt CommunityUserPool.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CommunityApi
+            Method: DELETE
+            Path: /me
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ─── CloudFront ───────────────────────────────────────────────────────────
+
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for Highland Oak Images ${Stage}"
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "Highland Oak Neighborhood Board CDN - ${Stage}"
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        WebACLId: !GetAtt WebACL.Arn
+        DefaultRootObject: index.html
+
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt ImagesBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+
+          - Id: ApiOrigin
+            DomainName: !Sub "${CommunityApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+            OriginPath: !Sub "/${Stage}"
+
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized managed policy
+          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf  # CORS-S3Origin managed policy
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled managed policy
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader managed policy
+            AllowedMethods:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+            CachedMethods:
+              - GET
+              - HEAD
+
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+
+      Tags:
+        - Key: Stage
+          Value: !Ref Stage
+        - Key: Project
+          Value: highland-oak
+
+  # ─── WAFv2 ────────────────────────────────────────────────────────────────
+
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "highland-oak-waf-${Stage}"
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "highland-oak-waf-${Stage}"
+      Rules:
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 1
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesCommonRuleSet
+
+        - Name: RateLimitPerIP
+          Priority: 2
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+              EvaluationWindowSec: 300
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: RateLimitPerIP
+
+      Tags:
+        - Key: Stage
+          Value: !Ref Stage
+        - Key: Project
+          Value: highland-oak
+
+# ─── Conditions ─────────────────────────────────────────────────────────────
+
+Conditions:
+  IsProd: !Equals [!Ref Stage, prod]
+
+# ─── Outputs ─────────────────────────────────────────────────────────────────
+
+Outputs:
+  ApiUrl:
+    Description: HTTP API Gateway URL
+    Value: !Sub "https://${CommunityApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiUrl"
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CommunityUserPool
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolId"
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref CommunityUserPoolClient
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolClientId"
+
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref CommunityTable
+    Export:
+      Name: !Sub "${AWS::StackName}-TableName"
+
+  ImagesBucketName:
+    Description: S3 images bucket name
+    Value: !Ref ImagesBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ImagesBucket"
+
+  CloudFrontDomain:
+    Description: CloudFront distribution domain
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomain"
+
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDistributionId"

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /home/donatello/Development/Kiro_multi_app_dev/highland_oak_neighborhood_board/ && node --version && npm --version 2>/dev/null; which bun 2>/dev/null && bun --version 2>/dev/null)",
+      "Bash(bun init:*)",
+      "Bash(bun add:*)",
+      "Bash(bun run:*)"
+    ]
+  }
+}

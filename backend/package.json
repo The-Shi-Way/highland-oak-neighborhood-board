@@ -1,0 +1,20 @@
+{
+  "name": "highland-oak-backend",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3",
+    "@aws-sdk/client-dynamodb": "^3",
+    "@aws-sdk/client-s3": "^3",
+    "@aws-sdk/lib-dynamodb": "^3",
+    "@aws-sdk/s3-request-presigner": "^3",
+    "sanitize-html": "^2",
+    "sharp": "^0.33",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "jest": "^29"
+  }
+}
