@@ -7,19 +7,27 @@ async function loginAsAdmin(page) {
   const passwordField = page.getByPlaceholder(/password/i);
   await passwordField.fill("Password123!");
   await page.getByRole("button", { name: /sign in/i }).last().click();
+  // Admin role badge visible after login
   await expect(page.getByText(/admin/i).first()).toBeVisible({ timeout: 5000 });
 }
 
 test.describe("Admin Dashboard", () => {
-  test("admin user sees admin navigation item", async ({ page }) => {
+  test("admin user sees Admin Panel navigation item", async ({ page }) => {
     await loginAsAdmin(page);
-    // Admin nav button should be visible
-    await expect(page.getByRole("button", { name: /admin/i })).toBeVisible({ timeout: 3000 });
+    // Use exact "Admin Panel" label to avoid matching avatar button
+    await expect(page.getByRole("button", { name: /admin panel/i })).toBeVisible({ timeout: 3000 });
   });
 
-  test("admin dashboard loads without error", async ({ page }) => {
+  test("admin dashboard loads with moderation content", async ({ page }) => {
     await loginAsAdmin(page);
-    await page.getByRole("button", { name: /admin/i }).click();
-    await expect(page.getByText(/admin dashboard|reports|moderation/i).first()).toBeVisible({ timeout: 3000 });
+    await page.getByRole("button", { name: /admin panel/i }).click();
+    await expect(page.getByRole("heading", { name: /admin dashboard/i })).toBeVisible({ timeout: 3000 });
+  });
+
+  test("admin dashboard shows reports queue and hidden posts sections", async ({ page }) => {
+    await loginAsAdmin(page);
+    await page.getByRole("button", { name: /admin panel/i }).click();
+    await expect(page.getByRole("heading", { name: /reports queue/i })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole("heading", { name: /hidden posts/i })).toBeVisible({ timeout: 3000 });
   });
 });

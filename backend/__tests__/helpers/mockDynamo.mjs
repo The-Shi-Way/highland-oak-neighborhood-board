@@ -1,11 +1,12 @@
 // Provides jest.fn() stubs for DynamoDB DocumentClient commands
 // Usage: import { mockDynamo, resetMocks } from "./mockDynamo.mjs";
+import { jest } from "@jest/globals";
 
 const store = new Map();
 
 export const mockSend = jest.fn();
 
-jest.mock("@aws-sdk/lib-dynamodb", () => ({
+jest.unstable_mockModule("@aws-sdk/lib-dynamodb", () => ({
   DynamoDBDocumentClient: {
     from: jest.fn(() => ({ send: mockSend })),
   },
@@ -18,8 +19,16 @@ jest.mock("@aws-sdk/lib-dynamodb", () => ({
   TransactWriteCommand: jest.fn((params) => ({ type: "TransactWrite", ...params })),
 }));
 
-jest.mock("@aws-sdk/client-dynamodb", () => ({
+class ConditionalCheckFailedException extends Error {
+  constructor(message = "ConditionalCheckFailedException") {
+    super(message);
+    this.name = "ConditionalCheckFailedException";
+  }
+}
+
+jest.unstable_mockModule("@aws-sdk/client-dynamodb", () => ({
   DynamoDBClient: jest.fn(() => ({})),
+  ConditionalCheckFailedException,
 }));
 
 export function resetMocks() {

@@ -14,20 +14,30 @@ Parameters:
   AllowedOrigin:
     Type: String
     Default: http://localhost:3002
-    Description: Allowed CORS origin (e.g. https://yourdomain.com)
+    Description: Allowed CORS origin (use your custom domain URL if using one, e.g. https://yourdomain.com)
+
+  DomainName:
+    Type: String
+    Default: ""
+    Description: Custom domain name for CloudFront (optional, e.g. yourdomain.com)
+
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN for custom domain (optional, must be in us-east-1)
 
 Globals:
   Function:
     Runtime: nodejs20.x
     Architectures:
-      - arm64
+      - x86_64
     Timeout: 29
     MemorySize: 256
     Environment:
       Variables:
         STAGE: !Ref Stage
         TABLE_NAME: !Ref CommunityTable
-        IMAGES_BUCKET: !Ref ImagesBucket
+        IMAGES_BUCKET: !Sub "highland-oak-images-${Stage}-${AWS::AccountId}"
         USER_POOL_ID: !Ref CommunityUserPool
         USER_POOL_CLIENT_ID: !Ref CommunityUserPoolClient
         ALLOWED_ORIGIN: !Ref AllowedOrigin
@@ -220,6 +230,37 @@ Resources:
             Action: s3:GetObject
             Resource: !Sub "arn:aws:s3:::${ImagesBucket}/*"
 
+  # ─── SPA Bucket ───────────────────────────────────────────────────────────
+
+  SpaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "highland-oak-spa-${Stage}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Stage
+          Value: !Ref Stage
+        - Key: Project
+          Value: highland-oak
+
+  SpaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SpaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOAI
+            Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${SpaBucket}/*"
+
   # ─── Lambda Layer (Sharp) ─────────────────────────────────────────────────
 
   SharpLayer:
@@ -231,7 +272,7 @@ Resources:
       CompatibleRuntimes:
         - nodejs20.x
       CompatibleArchitectures:
-        - arm64
+        - x86_64
       RetentionPolicy: Retain
     Metadata:
       BuildMethod: nodejs20.x
@@ -276,7 +317,6 @@ Resources:
               issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CommunityUserPool}"
               audience:
                 - !Ref CommunityUserPoolClient
-        DefaultAuthorizer: NONE
       Tags:
         Stage: !Ref Stage
         Project: highland-oak
@@ -594,7 +634,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref CommunityTable
         - S3WritePolicy:
-            BucketName: !Ref ImagesBucket
+            BucketName: !Sub "highland-oak-images-${Stage}-${AWS::AccountId}"
       Events:
         ApiEvent:
           Type: HttpApi
@@ -616,7 +656,7 @@ Resources:
       Timeout: 60
       Policies:
         - S3CrudPolicy:
-            BucketName: !Ref ImagesBucket
+            BucketName: !Sub "highland-oak-images-${Stage}-${AWS::AccountId}"
 
   # ─── Moderation Lambda Functions ──────────────────────────────────────────
 
@@ -790,10 +830,25 @@ Resources:
         Enabled: true
         HttpVersion: http2and3
         PriceClass: PriceClass_100
-        WebACLId: !GetAtt WebACL.Arn
+        WebACLId: !If [IsProd, !GetAtt WebACL.Arn, !Ref "AWS::NoValue"]
         DefaultRootObject: index.html
+        Aliases: !If
+          - HasCustomDomain
+          - - !Ref DomainName
+          - !Ref "AWS::NoValue"
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
 
         Origins:
+          - Id: SpaOrigin
+            DomainName: !GetAtt SpaBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+
           - Id: S3Origin
             DomainName: !GetAtt ImagesBucket.RegionalDomainName
             S3OriginConfig:
@@ -809,7 +864,7 @@ Resources:
             OriginPath: !Sub "/${Stage}"
 
         DefaultCacheBehavior:
-          TargetOriginId: S3Origin
+          TargetOriginId: SpaOrigin
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized managed policy
           OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf  # CORS-S3Origin managed policy
@@ -822,6 +877,19 @@ Resources:
             - HEAD
 
         CacheBehaviors:
+          - PathPattern: /images/*
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized managed policy
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf  # CORS-S3Origin managed policy
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+
           - PathPattern: /api/*
             TargetOriginId: ApiOrigin
             ViewerProtocolPolicy: redirect-to-https
@@ -859,6 +927,7 @@ Resources:
 
   WebACL:
     Type: AWS::WAFv2::WebACL
+    Condition: IsProd
     Properties:
       Name: !Sub "highland-oak-waf-${Stage}"
       Scope: CLOUDFRONT
@@ -906,6 +975,7 @@ Resources:
 
 Conditions:
   IsProd: !Equals [!Ref Stage, prod]
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
 
 # ─── Outputs ─────────────────────────────────────────────────────────────────
 
@@ -951,3 +1021,9 @@ Outputs:
     Value: !Ref CloudFrontDistribution
     Export:
       Name: !Sub "${AWS::StackName}-CloudFrontDistributionId"
+
+  SpaBucketName:
+    Description: S3 SPA bucket name for frontend deployment
+    Value: !Ref SpaBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-SpaBucket"

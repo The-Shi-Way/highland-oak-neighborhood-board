@@ -1,6 +1,7 @@
 {
   "name": "highland_oak_neighborhood_board",
   "private": true,
+  "type": "module",
   "devDependencies": {
     "@playwright/test": "^1.49",
     "@testing-library/jest-dom": "^6",

@@ -31,7 +31,8 @@ test.describe("Post Feed", () => {
   test("search filters posts", async ({ page }) => {
     await page.goto("/");
     await page.getByPlaceholder(/search/i).fill("farmers market");
-    await expect(page.getByText(/farmers market/i)).toBeVisible();
+    // The post card heading should include the seed post title
+    await expect(page.getByRole("heading", { name: /farmers market/i }).first()).toBeVisible();
   });
 });
 
@@ -43,7 +44,7 @@ test.describe("Create Post (Mock Mode)", () => {
     if (await createBtn.isVisible()) {
       await createBtn.click();
       // Should show auth modal
-      await expect(page.getByText(/welcome back|join the neighborhood/i)).toBeVisible({ timeout: 3000 });
+      await expect(page.getByText(/welcome back|join the highland oak/i)).toBeVisible({ timeout: 3000 });
     }
   });
 
@@ -56,16 +57,17 @@ test.describe("Create Post (Mock Mode)", () => {
     await createBtn.click();
 
     // Should see create post form
-    await expect(page.getByPlaceholder(/title/i)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByPlaceholder(/what's happening/i)).toBeVisible({ timeout: 3000 });
   });
 });
 
 test.describe("Watch Dashboard", () => {
   test("shows watch page with urgency posts", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /watch/i }).click();
-    // Look for Watch Dashboard content
-    await expect(page.getByText(/neighborhood watch|watch|alert/i).first()).toBeVisible({ timeout: 3000 });
+    // Click the Watch Dashboard nav button (sidebar) — use exact label to avoid category button
+    await page.getByRole("button", { name: /watch dashboard/i }).click();
+    // h2 includes emoji prefix; filter by text content
+    await expect(page.locator("h2").filter({ hasText: /highland watch/i })).toBeVisible({ timeout: 3000 });
   });
 });
 

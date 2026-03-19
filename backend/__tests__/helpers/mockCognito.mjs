@@ -1,4 +1,8 @@
-jest.mock("@aws-sdk/client-cognito-identity-provider", () => ({
+import { jest } from "@jest/globals";
+
+export const mockCognitoSend = jest.fn();
+
+jest.unstable_mockModule("@aws-sdk/client-cognito-identity-provider", () => ({
   CognitoIdentityProviderClient: jest.fn(() => ({ send: mockCognitoSend })),
   AdminCreateUserCommand: jest.fn((p) => ({ type: "AdminCreateUser", ...p })),
   AdminSetUserPasswordCommand: jest.fn((p) => ({ type: "AdminSetUserPassword", ...p })),
@@ -9,7 +13,5 @@ jest.mock("@aws-sdk/client-cognito-identity-provider", () => ({
   ForgotPasswordCommand: jest.fn((p) => ({ type: "ForgotPassword", ...p })),
   ConfirmForgotPasswordCommand: jest.fn((p) => ({ type: "ConfirmForgotPassword", ...p })),
 }));
-
-export const mockCognitoSend = jest.fn();
 
 export function resetCognitoMocks() { mockCognitoSend.mockReset(); }

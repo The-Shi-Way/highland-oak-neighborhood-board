@@ -1,5 +1,37 @@
 import { useState, createContext, useContext, useCallback } from "react";
 
+// ─── Oak Tree SVG Logo ────────────────────────────────────────────────────────
+function OakTreeIcon({ size = 36 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Main canopy */}
+      <ellipse cx="20" cy="16" rx="13" ry="11" fill="var(--accent)" />
+      {/* Secondary canopy cluster left */}
+      <ellipse cx="11" cy="17" rx="7" ry="6" fill="var(--accent)" />
+      {/* Secondary canopy cluster right */}
+      <ellipse cx="29" cy="17" rx="7" ry="6" fill="var(--accent)" />
+      {/* Canopy highlight */}
+      <ellipse cx="17" cy="13" rx="6" ry="4.5" fill="var(--accent-mid)" opacity="0.55" />
+      {/* Trunk */}
+      <path d="M17 27 Q18 24 20 24 Q22 24 23 27 L22.5 36 Q21.5 37 20 37 Q18.5 37 17.5 36 Z" fill="var(--bark)" />
+      {/* Root flare left */}
+      <path d="M17.5 34 Q14 35 12 37" stroke="var(--bark)" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      {/* Root flare right */}
+      <path d="M22.5 34 Q26 35 28 37" stroke="var(--bark)" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+// ─── Oak Leaf Decorator (small accent motif) ──────────────────────────────────
+function OakLeafAccent({ size = 18, opacity = 0.18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ opacity }}>
+      <path d="M10 1C7.5 1 4 3.5 4 7C4 8.5 4.5 10 5.5 11L5 16L10 14L15 16L14.5 11C15.5 10 16 8.5 16 7C16 3.5 12.5 1 10 1Z" fill="currentColor" />
+      <line x1="10" y1="5" x2="10" y2="14" stroke="white" strokeWidth="0.7" opacity="0.5" />
+    </svg>
+  );
+}
+
 // ─── Auth Context ───────────────────────────────────────────────────────────
 const AuthContext = createContext(null);
 const useAuth = () => useContext(AuthContext);
@@ -187,11 +219,11 @@ const INITIAL_POSTS = [
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
-  { key: "all", label: "All Posts", icon: "◉", color: "#6B7280" },
-  { key: "news", label: "News", icon: "📰", color: "#2563EB" },
-  { key: "watch", label: "Watch", icon: "👁️", color: "#DC2626" },
-  { key: "community", label: "Community", icon: "🏘️", color: "#059669" },
-  { key: "photos", label: "Photos", icon: "📸", color: "#D97706" },
+  { key: "all", label: "All Posts", icon: "◉", color: "#5A7A52" },
+  { key: "news", label: "News", icon: "📰", color: "#2B5EA7" },
+  { key: "watch", label: "Watch", icon: "👁️", color: "#B83232" },
+  { key: "community", label: "Community", icon: "🌳", color: "#3D7A38" },
+  { key: "photos", label: "Photos", icon: "📸", color: "#8B6914" },
 ];
 
 const URGENCY = {
@@ -593,7 +625,7 @@ function CreatePostForm({ onSubmit, onCancel }) {
         fontSize: 24, fontWeight: 800, color: "var(--text-primary)",
         marginBottom: 24, fontFamily: "var(--font-heading)",
       }}>
-        Share with Your Neighbors
+        Share with Highland
       </h2>
       <div style={{
         background: "var(--card-bg)", borderRadius: 16, padding: 28,
@@ -744,11 +776,14 @@ function AuthModal({ mode, onClose, onSwitch }) {
           width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
         }}
       >
-        <h2 style={{ fontSize: 24, fontWeight: 800, color: "var(--text-primary)", margin: "0 0 4px", fontFamily: "var(--font-heading)" }}>
-          {mode === "login" ? "Welcome Back" : "Join the Neighborhood"}
-        </h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <OakTreeIcon size={28} />
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-heading)" }}>
+            {mode === "login" ? "Welcome Back" : "Join The Highland Oak"}
+          </h2>
+        </div>
         <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 24px" }}>
-          {mode === "login" ? "Sign in to post and interact." : "Create your anonymous community account."}
+          {mode === "login" ? "Sign in to post and interact with neighbors." : "Create your private community account."}
         </p>
 
         {error && (
@@ -937,10 +972,10 @@ function WatchDashboard({ posts, onSelect }) {
     <div>
       <div style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 26, fontWeight: 800, color: "var(--text-primary)", margin: "0 0 6px", fontFamily: "var(--font-heading)" }}>
-          👁️ Neighborhood Watch
+          👁️ Highland Watch
         </h2>
         <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>
-          Community safety alerts sorted by urgency level.
+          Safety alerts for Highland City, sorted by urgency level.
         </p>
       </div>
 
@@ -1681,12 +1716,12 @@ function AppContent() {
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {filteredPosts.length === 0 ? (
                 <div style={{ textAlign: "center", padding: 60, color: "var(--text-muted)" }}>
-                  <p style={{ fontSize: 40, marginBottom: 12 }}>🏡</p>
-                  <p style={{ fontSize: 16, fontWeight: 600 }}>
+                  <p style={{ fontSize: 40, marginBottom: 12 }}>🌳</p>
+                  <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text-secondary)" }}>
                     {searchQuery ? "No posts match your search" : "No posts yet in this category"}
                   </p>
                   <p style={{ fontSize: 14 }}>
-                    {searchQuery ? "Try different keywords." : "Be the first to share something!"}
+                    {searchQuery ? "Try different keywords." : "Be the first to share something with Highland!"}
                   </p>
                 </div>
               ) : (
@@ -1731,23 +1766,42 @@ function AppContent() {
         borderBottom: "1px solid var(--border)", padding: "0 24px",
         position: "sticky", top: 0, zIndex: 100,
         backgroundColor: "var(--header-bg)", backdropFilter: "blur(12px)",
+        boxShadow: "0 1px 0 var(--border), 0 2px 8px rgba(0,0,0,0.04)",
       }}>
+        {/* Top accent bar */}
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, height: 3,
+          background: "linear-gradient(90deg, var(--accent) 0%, var(--accent-mid) 50%, var(--oak-gold) 100%)",
+        }} />
         <div style={{
           maxWidth: 1120, margin: "0 auto", display: "flex",
           alignItems: "center", justifyContent: "space-between", height: 64, gap: 16,
         }}>
           {/* Logo */}
           <div
-            style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flexShrink: 0 }}
+            style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", flexShrink: 0 }}
             onClick={() => { navigate({ page: "feed" }); setActiveCategory("all"); setSearchQuery(""); }}
           >
-            <span style={{ fontSize: 28 }}>🏡</span>
+            <div style={{
+              width: 42, height: 42, borderRadius: 10, background: "var(--accent-light)",
+              border: "1.5px solid var(--accent-border)", display: "flex",
+              alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <OakTreeIcon size={30} />
+            </div>
             <div>
-              <h1 style={{ fontSize: 18, fontWeight: 800, margin: 0, lineHeight: 1.1, fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-                The Neighborhood Board
+              <h1 style={{
+                fontSize: 17, fontWeight: 800, margin: 0, lineHeight: 1.15,
+                fontFamily: "var(--font-heading)", color: "var(--text-primary)",
+                letterSpacing: "-0.01em",
+              }}>
+                The Highland Oak
               </h1>
-              <p style={{ fontSize: 10, margin: 0, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                Meadowbrook Community
+              <p style={{
+                fontSize: 10, margin: 0, color: "var(--accent)", letterSpacing: "0.1em",
+                textTransform: "uppercase", fontWeight: 700,
+              }}>
+                Bulletin Board
               </p>
             </div>
           </div>
@@ -2036,13 +2090,27 @@ function AppContent() {
           </nav>
 
           <div style={{
-            marginTop: 24, padding: 16, background: "var(--bg-secondary)",
+            marginTop: 24, padding: 16,
+            background: "linear-gradient(135deg, var(--accent-light) 0%, var(--bg-secondary) 100%)",
             borderRadius: 12, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6,
+            border: "1px solid var(--accent-border)", position: "relative", overflow: "hidden",
           }}>
-            <p style={{ fontWeight: 700, color: "var(--text-secondary)", margin: "0 0 6px", fontSize: 13 }}>
+            <div style={{ position: "absolute", top: -4, right: -4, color: "var(--accent)" }}>
+              <OakLeafAccent size={32} opacity={0.2} />
+            </div>
+            <p style={{ fontWeight: 700, color: "var(--accent)", margin: "0 0 6px", fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
               🔒 Privacy Promise
             </p>
-            Your identity stays private. Only your display name is visible. No personal info is ever shared or sold.
+            Your identity stays private. Only your display name is visible to your Highland neighbors. No personal info is ever shared or sold.
+          </div>
+
+          <div style={{
+            marginTop: 14, padding: "10px 14px", borderRadius: 10,
+            background: "var(--bg-secondary)", border: "1px solid var(--border)",
+            fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, textAlign: "center",
+          }}>
+            <span style={{ color: "var(--accent)", fontWeight: 700 }}>🌳 Highland City</span>
+            <br />Community Board · Est. 2024
           </div>
         </aside>
 
@@ -2051,6 +2119,38 @@ function AppContent() {
           {renderMain()}
         </main>
       </div>
+
+      {/* Footer */}
+      <footer style={{
+        borderTop: "1px solid var(--border)", background: "var(--bg-secondary)",
+        padding: "28px 24px",
+      }}>
+        <div style={{
+          maxWidth: 1120, margin: "0 auto",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexWrap: "wrap", gap: 16,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <OakTreeIcon size={24} />
+            <div>
+              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, color: "var(--text-primary)", fontSize: 14 }}>
+                The Highland Oak Bulletin Board
+              </span>
+              <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 8 }}>
+                · Highland City Community
+              </span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 20, fontSize: 12, color: "var(--text-muted)" }}>
+            <span>🔒 Privacy-first platform</span>
+            <span>· Anonymous posting</span>
+            <span>· Community moderated</span>
+          </div>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
+            © {new Date().getFullYear()} The Highland Oak · Est. 2024
+          </p>
+        </div>
+      </footer>
 
       {/* Auth Modal */}
       {authModal && (
@@ -2066,34 +2166,49 @@ function AppContent() {
 
       {/* Global Styles */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700;800;900&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Source+Sans+3:wght@400;500;600;700&display=swap');
 
         :root {
           --font-heading: 'Fraunces', Georgia, serif;
           --font-body: 'Source Sans 3', system-ui, sans-serif;
-          --bg-primary: #F7F5F0;
-          --bg-secondary: #EFECE5;
-          --card-bg: #FFFFFF;
-          --header-bg: rgba(255,255,255,0.92);
-          --border: #E2DED5;
-          --text-primary: #2C2416;
-          --text-secondary: #5C5345;
-          --text-muted: #9C9385;
-          --accent: #B85C38;
-          --accent-light: rgba(184, 92, 56, 0.1);
+          /* Oak & parchment palette */
+          --bg-primary: #F3F0E6;
+          --bg-secondary: #E9E5D8;
+          --card-bg: #FDFCF8;
+          --header-bg: rgba(253,252,248,0.95);
+          --border: #D8D3C2;
+          --text-primary: #1C2A18;
+          --text-secondary: #445040;
+          --text-muted: #7E8C78;
+          /* Forest green accent */
+          --accent: #3A6830;
+          --accent-mid: #5A9850;
+          --accent-hover: #2A5222;
+          --accent-light: rgba(58,104,48,0.10);
+          --accent-border: rgba(58,104,48,0.22);
+          /* Oak bark / acorn gold */
+          --bark: #6B4C2A;
+          --oak-gold: #8B6914;
+          --oak-gold-light: rgba(139,105,20,0.12);
         }
 
         .dark-mode {
-          --bg-primary: #1A1510;
-          --bg-secondary: #241F18;
-          --card-bg: #2E2720;
-          --header-bg: rgba(26,21,16,0.92);
-          --border: #3D3530;
-          --text-primary: #F0EBE3;
-          --text-secondary: #C4B9AE;
-          --text-muted: #8A7E74;
-          --accent: #D4795A;
-          --accent-light: rgba(212, 121, 90, 0.12);
+          --bg-primary: #121A0F;
+          --bg-secondary: #1A2416;
+          --card-bg: #20301A;
+          --header-bg: rgba(18,26,15,0.95);
+          --border: #2C3E26;
+          --text-primary: #E4EDE0;
+          --text-secondary: #A4B89E;
+          --text-muted: #6A8064;
+          --accent: #5A9850;
+          --accent-mid: #74B868;
+          --accent-hover: #4A8040;
+          --accent-light: rgba(90,152,80,0.12);
+          --accent-border: rgba(90,152,80,0.25);
+          --bark: #9A7450;
+          --oak-gold: #C4A030;
+          --oak-gold-light: rgba(196,160,48,0.12);
         }
 
         * { box-sizing: border-box; }
@@ -2120,25 +2235,31 @@ function AppContent() {
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
       `}</style>
 
-      {/* Dark mode class toggling via wrapper div */}
+      {/* Dark mode body background */}
       <style>{`
-        body { background: ${darkMode ? "#1A1510" : "#F7F5F0"}; }
+        body { background: ${darkMode ? "#121A0F" : "#F3F0E6"}; }
       `}</style>
 
-      {/* Apply dark-mode class to root */}
+      {/* Apply dark-mode CSS vars */}
       {darkMode && (
         <style>{`
           :root {
-            --bg-primary: #1A1510;
-            --bg-secondary: #241F18;
-            --card-bg: #2E2720;
-            --header-bg: rgba(26,21,16,0.92);
-            --border: #3D3530;
-            --text-primary: #F0EBE3;
-            --text-secondary: #C4B9AE;
-            --text-muted: #8A7E74;
-            --accent: #D4795A;
-            --accent-light: rgba(212, 121, 90, 0.12);
+            --bg-primary: #121A0F;
+            --bg-secondary: #1A2416;
+            --card-bg: #20301A;
+            --header-bg: rgba(18,26,15,0.95);
+            --border: #2C3E26;
+            --text-primary: #E4EDE0;
+            --text-secondary: #A4B89E;
+            --text-muted: #6A8064;
+            --accent: #5A9850;
+            --accent-mid: #74B868;
+            --accent-hover: #4A8040;
+            --accent-light: rgba(90,152,80,0.12);
+            --accent-border: rgba(90,152,80,0.25);
+            --bark: #9A7450;
+            --oak-gold: #C4A030;
+            --oak-gold-light: rgba(196,160,48,0.12);
           }
         `}</style>
       )}

@@ -109,6 +109,11 @@ describe("POST /posts", () => {
   });
 
   test("missing title → 400", async () => {
+    // Rate limit check: no existing record
+    mockNotFound();
+    // Rate limit increment
+    mockSend.mockResolvedValueOnce({ Attributes: { count: 1 } });
+
     const event = makeAuthEvent({
       category: "news",
       body: "Body without title",
@@ -121,6 +126,11 @@ describe("POST /posts", () => {
   });
 
   test("title too short (< 3 chars) → 400", async () => {
+    // Rate limit check: no existing record
+    mockNotFound();
+    // Rate limit increment
+    mockSend.mockResolvedValueOnce({ Attributes: { count: 1 } });
+
     const event = makeAuthEvent({
       title: "Hi",
       category: "news",
@@ -133,6 +143,11 @@ describe("POST /posts", () => {
   });
 
   test("invalid category → 400", async () => {
+    // Rate limit check: no existing record
+    mockNotFound();
+    // Rate limit increment
+    mockSend.mockResolvedValueOnce({ Attributes: { count: 1 } });
+
     const event = makeAuthEvent({
       title: "Valid Post Title",
       category: "invalid-category",
